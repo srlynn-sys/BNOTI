@@ -45,6 +45,7 @@ jobs:
         run: node monitor.mjs
 
       - name: Save duplicate-prevention state
+        if: always()
         run: |
           git add state.json
           if ! git diff --cached --quiet; then
