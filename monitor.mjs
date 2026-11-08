@@ -36,7 +36,7 @@ async function runPublicFeed(username) {
   ];
   const wanted = username.toLowerCase();
   const errors = [];
-  const knownPostIds = { "C-H-I-N-A-": ["385914677072715", "385892861015833"] };
+  const knownPostIds = { "BTCxiao6": ["385892861015833"], "C-H-I-N-A-": ["385914677072715"] };
   const resolvedAuthorIds = new Set();
   for (const postId of (knownPostIds[username] || [])) {
     try {
