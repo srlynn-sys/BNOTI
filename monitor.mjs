@@ -36,6 +36,41 @@ async function runPublicFeed(username) {
   ];
   const wanted = username.toLowerCase();
   const errors = [];
+  const knownPostIds = { "C-H-I-N-A-": ["385914677072715", "385892861015833"] };
+  const resolvedAuthorIds = new Set();
+  for (const postId of (knownPostIds[username] || [])) {
+    try {
+      const detailResponse = await fetch("https://www.binance.com/bapi/composite/v3/friendly/pgc/special/content/detail/" + postId, {
+        headers: {
+          "accept": "application/json, text/plain, */*",
+          "referer": "https://www.binance.com/en/square/",
+          "user-agent": "Mozilla/5.0"
+        },
+        signal: AbortSignal.timeout(12000)
+      });
+      const detailText = await detailResponse.text();
+      if (!detailResponse.ok) throw new Error("HTTP " + detailResponse.status);
+      const payload = JSON.parse(detailText);
+      const d = payload && payload.data;
+      const author = d && (d.author || d.creator || d.user || {});
+      const authorId = d && (d.squareAuthorId || d.authorId || d.uid || d.userId || author.squareAuthorId || author.uid);
+      const authorName = d && (d.username || d.authorName || d.displayName || author.username || author.authorName || author.displayName);
+      console.log("Known post detail " + postId + ": " + JSON.stringify({authorName: authorName || null, authorId: authorId || null, code: payload.code || null, keys: d && typeof d === "object" ? Object.keys(d).slice(0, 35) : []}));
+      if (authorId != null) resolvedAuthorIds.add(String(authorId));
+      if (typeof authorName === "string" && authorName.toLowerCase() === wanted) {
+        const id = String(d.id || d.postId || postId);
+        return { squareUid: authorId == null ? username : String(authorId), posts: [{
+          ...d,
+          id,
+          title: d.title || d.content || d.bodyTextOnly || "(No title)",
+          time: d.date || d.createTime || null,
+          url: d.webLink || d.shareLink || "https://www.binance.com/en/square/post/" + id
+        }] };
+      }
+    } catch (e) {
+      console.log("Known post detail lookup failed for " + postId + ": " + (e && e.message || e));
+    }
+  }
   for (const feed of feeds) {
     for (let page = 1; page <= feed.maxPages; page++) {
       try {
@@ -80,7 +115,9 @@ async function runPublicFeed(username) {
             p?.user?.nickname, p?.user?.displayName, p?.creator?.username,
             p?.creator?.handle, p?.creator?.displayName
           ].filter(v => typeof v === "string").map(v => v.toLowerCase());
-          return candidates.includes(wanted);
+          const authorIds = [p?.squareAuthorId, p?.authorId, p?.uid, p?.userId, p?.author?.squareAuthorId, p?.author?.uid]
+            .filter(v => v != null).map(String);
+          return candidates.includes(wanted) || authorIds.some(id => resolvedAuthorIds.has(id));
         }).map(p => {
           const id = p?.id ?? p?.postId ?? p?.contentId;
           const link = p?.webLink || p?.shareLink || p?.url || (id ? `https://www.binance.com/en/square/post/${id}` : null);
