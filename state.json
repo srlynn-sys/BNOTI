@@ -7,5 +7,9 @@
       ],
       "initializedAt": "2026-11-08T04:00:05.813Z"
     }
+  },
+  "monitorErrors": {
+    "BTCxiao6": "Rendered Binance profile page exposed no public post links.",
+    "C-H-I-N-A-": "Rendered Binance profile page exposed no public post links."
   }
 }
