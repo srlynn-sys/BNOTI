@@ -24,13 +24,27 @@ function runProfileVisit(username) {
   });
   const captures = JSON.parse(raw);
   if (!Array.isArray(captures)) throw new Error("Profile capture returned an unexpected response.");
-  const profileCapture = captures.find(c =>
-    /\/bapi\/composite\/v\d+\/friendly\/pgc\/user\/client/i.test(c.url) &&
-    JSON.stringify(c.requestBody || {}).toLowerCase().includes(username.toLowerCase())
+  const profileCaptures = captures.filter(c =>
+    /\/bapi\/composite\/v\d+\/friendly\/pgc\/user\/client/i.test(c.url)
   );
+  const profileCapture = profileCaptures.find(c =>
+    JSON.stringify(c.requestBody || {}).toLowerCase().includes(username.toLowerCase())
+  ) || profileCaptures[0];
   const profileData = profileCapture?.body?.data;
-  const squareUid = profileData?.squareUid || profileData?.uid || profileData?.userId;
-  if (!squareUid) throw new Error("Profile fallback could not find the creator ID in captured Binance responses.");
+  const squareUid = profileData?.squareUid || profileData?.uid || profileData?.userId || profileData?.id;
+  if (!squareUid) {
+    console.log("Captured " + captures.length + " API responses for " + username + ":");
+    for (const c of captures.slice(0, 20)) {
+      console.log(JSON.stringify({
+        url: c.url, status: c.status, method: c.method,
+        requestBody: c.requestBody,
+        bodyKeys: c.body && typeof c.body === "object" ? Object.keys(c.body) : [],
+        dataKeys: c.body?.data && typeof c.body.data === "object" ? Object.keys(c.body.data) : [],
+        message: c.body?.message || c.body?.messageDetail || null,
+      }));
+    }
+    throw new Error("Profile fallback could not find the creator ID in captured Binance responses.");
+  }
 
   const postCapture = captures.find(c => /queryUserProfilePageContentsWithFilter/i.test(c.url));
   const data = postCapture?.body?.data;
