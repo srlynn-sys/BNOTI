@@ -1,0 +1,52 @@
+name: Binance Square Telegram Monitor
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: square-monitor
+  cancel-in-progress: false
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out monitor repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install browser dependencies and Binance Square reader
+        run: |
+          git clone --depth 1 https://github.com/QuantProcessing/binance-square-cli.git /tmp/binance-square-cli
+          cd /tmp/binance-square-cli
+          npm install
+          npx playwright install --with-deps chromium
+          npm run build
+
+      - name: Check creator posts and send Telegram alerts
+        env:
+          SQUARE_USERNAME: BTCxiao6
+          SQUARE_CLI_PATH: /tmp/binance-square-cli/dist/index.js
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: node monitor.mjs
+
+      - name: Save duplicate-prevention state
+        run: |
+          if ! git diff --quiet -- state.json; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add state.json
+            git commit -m "Update Square monitor state [skip ci]"
+            git push
+          fi
