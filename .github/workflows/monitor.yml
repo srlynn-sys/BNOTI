@@ -36,6 +36,7 @@ jobs:
       - name: Check creator posts and send Telegram alerts
         env:
           SQUARE_USERNAME: BTCxiao6
+          BSQ_LANG: zh-CN
           SQUARE_CLI_PATH: /tmp/binance-square-cli/dist/index.js
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
