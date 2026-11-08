@@ -107,106 +107,7 @@ async function runPublicFeed(username) {
   throw new Error(`No exact public-feed author match for ${username} across latest/news/trending feeds. ${errors.slice(0, 3).join(" | ")}`);
 }
 
-function runProfileVisit(username) {
-  console.log(`Trying profile-page network capture fallback for ${username}...`);
-  const profileUrl = `https://www.binance.com/zh-CN/square/profile/${encodeURIComponent(username)}`;
-  const raw = execFileSync("node", [
-    cli, "visit", profileUrl, "--settle", "12", "--debug",
-  ], {
-    encoding: "utf8", timeout: 90_000, stdio: ["ignore", "pipe", "inherit"],
-  });
-  const captures = JSON.parse(raw);
-  if (!Array.isArray(captures)) throw new Error("Profile capture returned an unexpected response.");
-  const profileCaptures = captures.filter(c =>
-    /\/bapi\/composite\/v\d+\/friendly\/pgc\/user\/client/i.test(c.url)
-  );
-  const profileCapture = profileCaptures.find(c =>
-    JSON.stringify(c.requestBody || {}).toLowerCase().includes(username.toLowerCase())
-  ) || profileCaptures[0];
-  const profileData = profileCapture?.body?.data;
-  const squareUid = profileData?.squareUid || profileData?.uid || profileData?.userId || profileData?.id;
-  if (!squareUid) {
-    console.log("Captured " + captures.length + " API responses for " + username + ":");
-    for (const c of captures.slice(0, 20)) {
-      console.log(JSON.stringify({
-        url: c.url, status: c.status, method: c.method,
-        requestBody: c.requestBody,
-        bodyKeys: c.body && typeof c.body === "object" ? Object.keys(c.body) : [],
-        dataKeys: c.body?.data && typeof c.body.data === "object" ? Object.keys(c.body.data) : [],
-        message: c.body?.message || c.body?.messageDetail || null,
-      }));
-    }
-    throw new Error("Profile fallback could not find the creator ID in captured Binance responses.");
-  }
-
-  const postCapture = captures.find(c => /queryUserProfilePageContentsWithFilter/i.test(c.url));
-  const data = postCapture?.body?.data;
-  const rawPosts = Array.isArray(data?.contents) ? data.contents : Array.isArray(data?.posts) ? data.posts : [];
-  const posts = rawPosts.map(p => ({
-    ...p,
-    id: p?.id == null ? null : String(p.id),
-    title: p?.title || p?.subTitle || p?.bodyTextOnly || p?.body || "(No title)",
-    time: p?.createTime || p?.firstReleaseTime || null,
-    url: p?.webLink || p?.shareLink || `https://www.binance.com/en/square/profile/${encodeURIComponent(username)}`,
-  })).filter(p => p.id);
-  console.log(`Profile fallback resolved creator ID: ${squareUid}; captured posts: ${posts.length}`);
-  return { squareUid, posts };
-}
-
-function runProfileDom(username) {
-  console.log(`Trying rendered-page DOM fallback for ${username}...`);
-  const script = String.raw`
-    import { chromium } from "/tmp/binance-square-cli/node_modules/playwright/index.mjs";
-    const username = process.argv[1];
-    const url = "https://www.binance.com/zh-CN/square/profile/" + encodeURIComponent(username);
-    const browser = await chromium.launch({ headless: true, args: ["--no-sandbox", "--disable-dev-shm-usage", "--disable-blink-features=AutomationControlled"] });
-    try {
-      const page = await browser.newPage({
-        userAgent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-        viewport: { width: 1440, height: 1000 },
-        locale: "en-US"
-      });
-      await page.goto(url, { waitUntil: "domcontentloaded", timeout: 45000 });
-      await page.waitForTimeout(9000);
-      const pageInfo = await page.evaluate(() => ({
-        title: document.title,
-        url: location.href,
-        bodyText: (document.body?.innerText || "").slice(0, 1200),
-        postLinks: document.querySelectorAll('a[href*="/square/post/"]').length
-      }));
-      console.log("Profile page diagnostics for " + username + ": " + JSON.stringify(pageInfo));
-      const result = await page.evaluate(() => {
-        const anchors = Array.from(document.querySelectorAll('a[href*="/square/post/"]'));
-        const seen = new Set();
-        return anchors.map(a => {
-          const href = new URL(a.getAttribute("href"), location.origin).href;
-          const match = href.match(/\/square\/post\/(\d+)/);
-          if (!match || seen.has(match[1])) return null;
-          seen.add(match[1]);
-          const card = a.closest("article") || a.parentElement?.parentElement?.parentElement || a;
-          const text = (card.innerText || a.innerText || "").trim().replace(/\s+/g, " ");
-          return { id: match[1], title: text.slice(0, 1000) || "(Post text unavailable)", url: href, time: null };
-        }).filter(Boolean).slice(0, 30);
-      });
-      console.log("Rendered DOM posts found: " + result.length);
-      process.stdout.write(JSON.stringify({ posts: result }));
-    } finally {
-      await browser.close();
-    }
-  `;
-  const raw = execFileSync("node", ["--input-type=module", "-e", script, username], {
-    encoding: "utf8", timeout: 75000, stdio: ["ignore", "pipe", "inherit"],
-  });
-  const diagnosticLines = raw.split("\n").filter(line => line.includes("Profile page diagnostics") || line.includes("Rendered DOM posts found"));
-  for (const line of diagnosticLines) console.log(line);
-  const jsonStart = raw.lastIndexOf('{"posts":');
-  if (jsonStart < 0) throw new Error("Rendered-page reader returned no post JSON. Output: " + raw.slice(-1200));
-  const parsed = JSON.parse(raw.slice(jsonStart).trim());
-  if (!Array.isArray(parsed.posts) || parsed.posts.length === 0) {
-    throw new Error("Rendered Binance profile page exposed no public post links.");
-  }
-  return { squareUid: username, posts: parsed.posts };
-}
+// Profile-page fallbacks intentionally removed; use public feeds only.
 
 function htmlEscape(value = "") {
   return String(value).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
@@ -252,28 +153,8 @@ async function sendMonitorError(username, errorText) {
 }
 
 async function readCreator(username) {
-  console.log(`Checking Binance Square creator: ${username}`);
-  try {
-    const user = runCli("user", username);
-    const squareUid = user?.squareUid;
-    if (!squareUid) throw new Error(`Could not resolve Square creator username: ${username}`);
-    console.log(`Resolved creator ID for ${username}: ${squareUid}`);
-    const result = runCli("user-posts", squareUid);
-    return { squareUid, posts: Array.isArray(result?.posts) ? result.posts.filter(p => p?.id) : [] };
-  } catch (primaryError) {
-    console.error(`Primary reader failed for ${username}: ${primaryError?.message || primaryError}`);
-    try {
-      return await runPublicFeed(username);
-    } catch (feedError) {
-      console.error(`Browserless public-feed fallback failed for ${username}: ${feedError?.message || feedError}`);
-      try {
-        return runProfileVisit(username);
-      } catch (captureError) {
-        console.error(`Network-capture fallback failed for ${username}: ${captureError?.message || captureError}`);
-        return runProfileDom(username);
-      }
-    }
-  }
+  console.log(`Checking public Binance Square feeds for creator: ${username}`);
+  return await runPublicFeed(username);
 }
 
 async function main() {
