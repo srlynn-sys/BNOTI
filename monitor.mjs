@@ -196,6 +196,23 @@ async function sendTelegram(username, post) {
   if (!response.ok || !result.ok) throw new Error(`Telegram send failed: ${result.description || response.status}`);
 }
 
+async function sendMonitorError(username, errorText) {
+  if (!token || !chatId) throw new Error("Telegram secrets are not configured.");
+  const message = [
+    "⚠️ BNOTI monitor could not read Binance Square",
+    `Creator: ${username}`,
+    `Reason: ${String(errorText).slice(0, 700)}`,
+    "No new-post check was completed for this creator. This is a monitoring error, not a new-post alert."
+  ].join("\n");
+  const response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ chat_id: chatId, text: message, disable_web_page_preview: true }),
+  });
+  const result = await response.json();
+  if (!response.ok || !result.ok) throw new Error(`Telegram monitor-error alert failed: ${result.description || response.status}`);
+}
+
 async function readCreator(username) {
   console.log(`Checking Binance Square creator: ${username}`);
   try {
@@ -224,11 +241,13 @@ async function readCreator(username) {
 async function main() {
   const state = existsSync("state.json") ? JSON.parse(readFileSync("state.json", "utf8")) : {};
   if (!state.creators || typeof state.creators !== "object") state.creators = {};
+  if (!state.monitorErrors || typeof state.monitorErrors !== "object") state.monitorErrors = {};
   const errors = [];
 
   for (const username of usernames) {
     try {
       const { squareUid, posts } = await readCreator(username);
+      delete state.monitorErrors[username];
       if (!posts.length) {
         console.log(`No posts returned for ${username}; leaving this creator's state unchanged.`);
         continue;
@@ -263,7 +282,19 @@ async function main() {
       };
       console.log(`Done for ${username}. New posts detected: ${fresh.length}`);
     } catch (error) {
+      const errorText = String(error?.message || error).slice(0, 500);
       console.error(`Creator check failed for ${username}: ${error?.stack || error}`);
+      if (state.monitorErrors[username] !== errorText) {
+        try {
+          await sendMonitorError(username, errorText);
+          state.monitorErrors[username] = errorText;
+          console.log(`Sent one Telegram warning for the current ${username} monitoring error.`);
+        } catch (alertError) {
+          console.error(`Could not send monitoring-error alert for ${username}: ${alertError?.message || alertError}`);
+        }
+      } else {
+        console.log(`Same monitoring error already alerted for ${username}; suppressing duplicate Telegram warning.`);
+      }
       errors.push(username);
     }
   }
