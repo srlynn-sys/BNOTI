@@ -18,7 +18,7 @@ function runProfileVisit(username) {
   console.log(`Trying profile-page network capture fallback for ${username}...`);
   const profileUrl = `https://www.binance.com/en/square/profile/${encodeURIComponent(username)}`;
   const raw = execFileSync("node", [
-    cli, "visit", profileUrl, "--settle", "12", "--scroll", "--debug",
+    cli, "visit", profileUrl, "--settle", "12", "--debug",
   ], {
     encoding: "utf8", timeout: 90_000, stdio: ["ignore", "pipe", "inherit"],
   });
