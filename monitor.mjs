@@ -3,9 +3,9 @@ import { readFileSync, writeFileSync, existsSync } from "node:fs";
 
 const username = process.env.SQUARE_USERNAME || "BTCxiao6";
 const cli = process.env.SQUARE_CLI_PATH || "/tmp/binance-square-cli/dist/index.js";
-const statePath = "state.json";
 const token = process.env.TELEGRAM_BOT_TOKEN;
 const chatId = process.env.TELEGRAM_CHAT_ID;
+const profileUrl = process.env.SQUARE_PROFILE_URL || `https://www.binance.com/en/square/profile/${encodeURIComponent(username)}`;
 
 function runCli(...args) {
   const raw = execFileSync("node", [cli, ...args, "--pretty"], {
@@ -16,14 +16,50 @@ function runCli(...args) {
   return JSON.parse(raw);
 }
 
+function runProfileVisit() {
+  console.log("Trying profile-page network capture fallback...");
+  const raw = execFileSync("node", [
+    cli, "visit", profileUrl, "--settle", "12", "--scroll", "--debug",
+  ], {
+    encoding: "utf8",
+    timeout: 90_000,
+    stdio: ["ignore", "pipe", "inherit"],
+  });
+  const captures = JSON.parse(raw);
+  if (!Array.isArray(captures)) throw new Error("Profile capture returned an unexpected response.");
+  const profileCapture = captures.find(c =>
+    /\/bapi\/composite\/v\d+\/friendly\/pgc\/user\/client/i.test(c.url) &&
+    JSON.stringify(c.requestBody || {}).toLowerCase().includes(username.toLowerCase())
+  );
+  const profileData = profileCapture?.body?.data;
+  const squareUid = profileData?.squareUid || profileData?.uid || profileData?.userId;
+  if (!squareUid) {
+    throw new Error("Profile fallback could not find the creator ID in captured Binance responses.");
+  }
+
+  const postCapture = captures.find(c =>
+    /queryUserProfilePageContentsWithFilter/i.test(c.url)
+  );
+  const data = postCapture?.body?.data;
+  const rawPosts = Array.isArray(data?.contents) ? data.contents : Array.isArray(data?.posts) ? data.posts : [];
+  const posts = rawPosts.map(p => ({
+    ...p,
+    id: p?.id == null ? null : String(p.id),
+    title: p?.title || p?.subTitle || p?.bodyTextOnly || p?.body || "(No title)",
+    time: p?.createTime || p?.firstReleaseTime || null,
+    url: p?.webLink || p?.shareLink || `https://www.binance.com/en/square/profile/${encodeURIComponent(username)}`,
+  })).filter(p => p.id);
+  console.log(`Profile fallback resolved creator ID: ${squareUid}; captured posts: ${posts.length}`);
+  return { squareUid, posts };
+}
+
 function htmlEscape(value = "") {
   return String(value).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 }
 
 async function sendTelegram(post) {
   if (!token || !chatId) {
-    console.log("Telegram secrets are not configured; skipping notification.");
-    return;
+    throw new Error("Telegram secrets are not configured. Check TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID in GitHub Actions secrets.");
   }
   const title = post.title || "(No title)";
   const url = post.url || `https://www.binance.com/en/square/profile/${username}`;
@@ -38,12 +74,7 @@ async function sendTelegram(post) {
   const response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      chat_id: chatId,
-      text: message,
-      parse_mode: "HTML",
-      disable_web_page_preview: false,
-    }),
+    body: JSON.stringify({ chat_id: chatId, text: message, parse_mode: "HTML", disable_web_page_preview: false }),
   });
   const result = await response.json();
   if (!response.ok || !result.ok) throw new Error(`Telegram send failed: ${result.description || response.status}`);
@@ -51,27 +82,36 @@ async function sendTelegram(post) {
 
 async function main() {
   console.log(`Checking Binance Square creator: ${username}`);
-  const user = runCli("user", username);
-  if (!user?.squareUid) throw new Error(`Could not resolve Square creator username: ${username}`);
-  console.log(`Resolved creator ID: ${user.squareUid}`);
+  let squareUid;
+  let posts = [];
 
-  const result = runCli("user-posts", user.squareUid);
-  const posts = Array.isArray(result?.posts) ? result.posts.filter(p => p?.id) : [];
+  try {
+    const user = runCli("user", username);
+    squareUid = user?.squareUid;
+    if (!squareUid) throw new Error(`Could not resolve Square creator username: ${username}`);
+    console.log(`Resolved creator ID: ${squareUid}`);
+    const result = runCli("user-posts", squareUid);
+    posts = Array.isArray(result?.posts) ? result.posts.filter(p => p?.id) : [];
+  } catch (primaryError) {
+    console.error(`Primary reader failed: ${primaryError?.message || primaryError}`);
+    const fallback = runProfileVisit();
+    squareUid = fallback.squareUid;
+    posts = fallback.posts;
+  }
+
   if (!posts.length) {
     console.log("No posts returned; leaving state unchanged.");
     return;
   }
 
-  const state = existsSync(statePath)
-    ? JSON.parse(readFileSync(statePath, "utf8"))
-    : {};
+  const state = existsSync("state.json") ? JSON.parse(readFileSync("state.json", "utf8")) : {};
   const previousIds = new Set(Array.isArray(state.seenIds) ? state.seenIds : []);
   const isFirstRun = !Array.isArray(state.seenIds) || state.seenIds.length === 0;
 
   if (isFirstRun) {
     state.seenIds = posts.map(p => String(p.id)).slice(0, 200);
     state.initializedAt = new Date().toISOString();
-    writeFileSync(statePath, JSON.stringify(state, null, 2) + "\n");
+    writeFileSync("state.json", JSON.stringify(state, null, 2) + "\n");
     console.log(`Initial baseline saved (${state.seenIds.length} recent post IDs); no old posts notified.`);
     return;
   }
@@ -84,7 +124,7 @@ async function main() {
 
   state.seenIds = [...new Set([...posts.map(p => String(p.id)), ...previousIds])].slice(0, 200);
   state.lastCheckedAt = new Date().toISOString();
-  writeFileSync(statePath, JSON.stringify(state, null, 2) + "\n");
+  writeFileSync("state.json", JSON.stringify(state, null, 2) + "\n");
   console.log(`Done. New posts detected: ${fresh.length}`);
 }
 
