@@ -2,14 +2,15 @@
   "seenIds": [],
   "creators": {
     "C-H-I-N-A-": {
+      "squareUid": "C-H-I-N-A-",
       "seenIds": [
         "385914677072715"
       ],
-      "initializedAt": "2026-11-08T04:00:05.813Z"
+      "initializedAt": "2026-11-08T04:00:05.813Z",
+      "lastCheckedAt": "2026-11-08T04:46:48.241Z"
     }
   },
   "monitorErrors": {
-    "BTCxiao6": "No exact public-feed author match for BTCxiao6 across latest/news/trending feeds. ",
-    "C-H-I-N-A-": "No exact public-feed author match for C-H-I-N-A- across latest/news/trending feeds. "
+    "BTCxiao6": "No exact public-feed author match for BTCxiao6 across latest/news/trending feeds. "
   }
 }
