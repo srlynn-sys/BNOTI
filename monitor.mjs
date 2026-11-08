@@ -20,21 +20,24 @@ async function runPublicFeed(username) {
   const feeds = [
     {
       name: "latest articles",
+      maxPages: 50,
       url: page => `https://www.binance.com/bapi/composite/v3/friendly/pgc/content/article/list?pageIndex=${page}&pageSize=20&type=2`
     },
     {
       name: "news feed",
+      maxPages: 10,
       url: page => `https://www.binance.com/bapi/composite/v4/friendly/pgc/feed/news/list?pageIndex=${page}&pageSize=20`
     },
     {
       name: "trending articles",
+      maxPages: 5,
       url: page => `https://www.binance.com/bapi/composite/v3/friendly/pgc/content/article/list?pageIndex=${page}&pageSize=20&type=1`
     }
   ];
   const wanted = username.toLowerCase();
   const errors = [];
   for (const feed of feeds) {
-    for (let page = 1; page <= 5; page++) {
+    for (let page = 1; page <= feed.maxPages; page++) {
       try {
         const response = await fetch(feed.url(page), {
           headers: {
