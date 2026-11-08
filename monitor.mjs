@@ -16,19 +16,19 @@ function runCli(...args) {
 
 
 async function runPublicFeed(username) {
-  console.log(\`Trying expanded public Square feeds for \${username}...\`);
+  console.log(`Trying expanded public Square feeds for ${username}...`);
   const feeds = [
     {
       name: "latest articles",
-      url: page => \`https://www.binance.com/bapi/composite/v3/friendly/pgc/content/article/list?pageIndex=\${page}&pageSize=20&type=2\`
+      url: page => `https://www.binance.com/bapi/composite/v3/friendly/pgc/content/article/list?pageIndex=${page}&pageSize=20&type=2`
     },
     {
       name: "news feed",
-      url: page => \`https://www.binance.com/bapi/composite/v4/friendly/pgc/feed/news/list?pageIndex=\${page}&pageSize=20\`
+      url: page => `https://www.binance.com/bapi/composite/v4/friendly/pgc/feed/news/list?pageIndex=${page}&pageSize=20`
     },
     {
       name: "trending articles",
-      url: page => \`https://www.binance.com/bapi/composite/v3/friendly/pgc/content/article/list?pageIndex=\${page}&pageSize=20&type=1\`
+      url: page => `https://www.binance.com/bapi/composite/v3/friendly/pgc/content/article/list?pageIndex=${page}&pageSize=20&type=1`
     }
   ];
   const wanted = username.toLowerCase();
@@ -46,7 +46,7 @@ async function runPublicFeed(username) {
           signal: AbortSignal.timeout(15000)
         });
         const bodyText = await response.text();
-        if (!response.ok) throw new Error(\`HTTP \${response.status}: \${bodyText.slice(0, 120)}\`);
+        if (!response.ok) throw new Error(`HTTP ${response.status}: ${bodyText.slice(0, 120)}`);
         let payload;
         try { payload = JSON.parse(bodyText); }
         catch { throw new Error("returned non-JSON content (possibly a security check)"); }
@@ -58,7 +58,7 @@ async function runPublicFeed(username) {
           : Array.isArray(data?.items) ? data.items
           : Array.isArray(data?.vos) ? data.vos
           : Array.isArray(data?.feeds) ? data.feeds : [];
-        console.log(\`\${feed.name} page \${page}: \${list.length} candidate items\`);
+        console.log(`${feed.name} page ${page}: ${list.length} candidate items`);
         const matches = list.filter(p => {
           const candidates = [
             p?.username, p?.handle, p?.authorUsername, p?.authorHandle,
@@ -72,7 +72,7 @@ async function runPublicFeed(username) {
           return candidates.includes(wanted);
         }).map(p => {
           const id = p?.id ?? p?.postId ?? p?.contentId;
-          const link = p?.webLink || p?.shareLink || p?.url || (id ? \`https://www.binance.com/en/square/post/\${id}\` : null);
+          const link = p?.webLink || p?.shareLink || p?.url || (id ? `https://www.binance.com/en/square/post/${id}` : null);
           return {
             ...p,
             id: id == null ? null : String(id),
@@ -82,18 +82,18 @@ async function runPublicFeed(username) {
           };
         }).filter(p => p.id && p.url);
         if (matches.length) {
-          console.log(\`Public \${feed.name} matched \${matches.length} posts for \${username}\`);
+          console.log(`Public ${feed.name} matched ${matches.length} posts for ${username}`);
           return { squareUid: username, posts: matches };
         }
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
-        errors.push(\`\${feed.name} page \${page}: \${msg}\`);
-        console.log(\`Public \${feed.name} fallback issue: \${msg}\`);
+        errors.push(`${feed.name} page ${page}: ${msg}`);
+        console.log(`Public ${feed.name} fallback issue: ${msg}`);
         break;
       }
     }
   }
-  throw new Error(\`No exact public-feed author match for \${username} across latest/news/trending feeds. \${errors.slice(0, 3).join(" | ")}\`);
+  throw new Error(`No exact public-feed author match for ${username} across latest/news/trending feeds. ${errors.slice(0, 3).join(" | ")}`);
 }
 
 function runProfileVisit(username) {
