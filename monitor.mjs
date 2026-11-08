@@ -16,58 +16,84 @@ function runCli(...args) {
 
 
 async function runPublicFeed(username) {
-  console.log(`Trying browserless public Square feed fallback for ${username}...`);
-  const url = "https://www.binance.com/bapi/composite/v3/friendly/pgc/content/article/list?pageIndex=1&pageSize=20&type=2";
-  const response = await fetch(url, {
-    headers: {
-      "accept": "application/json, text/plain, */*",
-      "accept-language": "en-US,en;q=0.9",
-      "referer": "https://www.binance.com/zh-CN/square/trending",
-      "user-agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
+  console.log(\`Trying expanded public Square feeds for \${username}...\`);
+  const feeds = [
+    {
+      name: "latest articles",
+      url: page => \`https://www.binance.com/bapi/composite/v3/friendly/pgc/content/article/list?pageIndex=\${page}&pageSize=20&type=2\`
     },
-    signal: AbortSignal.timeout(20000)
-  });
-  const bodyText = await response.text();
-  if (!response.ok) throw new Error(`Public feed HTTP ${response.status}: ${bodyText.slice(0, 180)}`);
-  let payload;
-  try { payload = JSON.parse(bodyText); }
-  catch { throw new Error("Public feed returned non-JSON content (possibly a security check)."); }
-  const data = payload?.data;
-  const list = Array.isArray(data) ? data
-    : Array.isArray(data?.list) ? data.list
-    : Array.isArray(data?.articles) ? data.articles
-    : Array.isArray(data?.contents) ? data.contents
-    : Array.isArray(data?.items) ? data.items
-    : Array.isArray(data?.vos) ? data.vos : [];
-  if (!list.length) {
-    throw new Error("Public feed returned no recognized posts; response keys: " + JSON.stringify(Object.keys(payload || {})) + "; data keys: " + JSON.stringify(data && typeof data === "object" ? Object.keys(data) : []));
-  }
+    {
+      name: "news feed",
+      url: page => \`https://www.binance.com/bapi/composite/v4/friendly/pgc/feed/news/list?pageIndex=\${page}&pageSize=20\`
+    },
+    {
+      name: "trending articles",
+      url: page => \`https://www.binance.com/bapi/composite/v3/friendly/pgc/content/article/list?pageIndex=\${page}&pageSize=20&type=1\`
+    }
+  ];
   const wanted = username.toLowerCase();
-  const matches = list.filter(p => {
-    const candidates = [
-      p?.username, p?.handle, p?.authorUsername, p?.authorHandle,
-      p?.creatorName, p?.authorName, p?.nickname, p?.userName,
-      p?.author?.username, p?.author?.handle, p?.author?.nickname,
-      p?.user?.username, p?.user?.handle, p?.user?.nickname
-    ].filter(v => typeof v === "string").map(v => v.toLowerCase());
-    return candidates.includes(wanted);
-  }).map(p => ({
-    ...p,
-    id: p?.id == null ? null : String(p.id),
-    title: p?.title || p?.content || p?.bodyTextOnly || p?.body || "(No title)",
-    time: p?.date || p?.createTime || p?.publishTime || null,
-    url: p?.webLink || p?.shareLink || (p?.id ? `https://www.binance.com/en/square/post/${p.id}` : null)
-  })).filter(p => p.id && p.url);
-  console.log(`Public feed returned ${list.length} posts; exact handle matches for ${username}: ${matches.length}`);
-  if (!matches.length) {
-    console.log("Public feed author-field sample: " + JSON.stringify(list.slice(0, 3).map(p => ({
-      id: p?.id, authorName: p?.authorName, username: p?.username,
-      authorUsername: p?.authorUsername, handle: p?.handle,
-      authorKeys: p?.author && typeof p.author === "object" ? Object.keys(p.author) : []
-    }))));
-    throw new Error("Public feed has no exact username match; refusing to send unrelated posts.");
+  const errors = [];
+  for (const feed of feeds) {
+    for (let page = 1; page <= 5; page++) {
+      try {
+        const response = await fetch(feed.url(page), {
+          headers: {
+            "accept": "application/json, text/plain, */*",
+            "accept-language": "en-US,en;q=0.9",
+            "referer": "https://www.binance.com/zh-CN/square/trending",
+            "user-agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
+          },
+          signal: AbortSignal.timeout(15000)
+        });
+        const bodyText = await response.text();
+        if (!response.ok) throw new Error(\`HTTP \${response.status}: \${bodyText.slice(0, 120)}\`);
+        let payload;
+        try { payload = JSON.parse(bodyText); }
+        catch { throw new Error("returned non-JSON content (possibly a security check)"); }
+        const data = payload?.data;
+        const list = Array.isArray(data) ? data
+          : Array.isArray(data?.list) ? data.list
+          : Array.isArray(data?.articles) ? data.articles
+          : Array.isArray(data?.contents) ? data.contents
+          : Array.isArray(data?.items) ? data.items
+          : Array.isArray(data?.vos) ? data.vos
+          : Array.isArray(data?.feeds) ? data.feeds : [];
+        console.log(\`\${feed.name} page \${page}: \${list.length} candidate items\`);
+        const matches = list.filter(p => {
+          const candidates = [
+            p?.username, p?.handle, p?.authorUsername, p?.authorHandle,
+            p?.creatorName, p?.authorName, p?.nickname, p?.userName,
+            p?.displayName, p?.screenName, p?.authorDisplayName,
+            p?.author?.username, p?.author?.handle, p?.author?.nickname,
+            p?.author?.displayName, p?.user?.username, p?.user?.handle,
+            p?.user?.nickname, p?.user?.displayName, p?.creator?.username,
+            p?.creator?.handle, p?.creator?.displayName
+          ].filter(v => typeof v === "string").map(v => v.toLowerCase());
+          return candidates.includes(wanted);
+        }).map(p => {
+          const id = p?.id ?? p?.postId ?? p?.contentId;
+          const link = p?.webLink || p?.shareLink || p?.url || (id ? \`https://www.binance.com/en/square/post/\${id}\` : null);
+          return {
+            ...p,
+            id: id == null ? null : String(id),
+            title: p?.title || p?.content || p?.bodyTextOnly || p?.body || "(No title)",
+            time: p?.date || p?.createTime || p?.publishTime || null,
+            url: link
+          };
+        }).filter(p => p.id && p.url);
+        if (matches.length) {
+          console.log(\`Public \${feed.name} matched \${matches.length} posts for \${username}\`);
+          return { squareUid: username, posts: matches };
+        }
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        errors.push(\`\${feed.name} page \${page}: \${msg}\`);
+        console.log(\`Public \${feed.name} fallback issue: \${msg}\`);
+        break;
+      }
+    }
   }
-  return { squareUid: username, posts: matches };
+  throw new Error(\`No exact public-feed author match for \${username} across latest/news/trending feeds. \${errors.slice(0, 3).join(" | ")}\`);
 }
 
 function runProfileVisit(username) {
