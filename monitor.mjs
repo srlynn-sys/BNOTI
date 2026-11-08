@@ -75,6 +75,13 @@ function runProfileDom(username) {
       });
       await page.goto(url, { waitUntil: "domcontentloaded", timeout: 45000 });
       await page.waitForTimeout(9000);
+      const pageInfo = await page.evaluate(() => ({
+        title: document.title,
+        url: location.href,
+        bodyText: (document.body?.innerText || "").slice(0, 1200),
+        postLinks: document.querySelectorAll('a[href*="/square/post/"]').length
+      }));
+      console.log("Profile page diagnostics for " + username + ": " + JSON.stringify(pageInfo));
       const result = await page.evaluate(() => {
         const anchors = Array.from(document.querySelectorAll('a[href*="/square/post/"]'));
         const seen = new Set();
