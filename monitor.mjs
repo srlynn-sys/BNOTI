@@ -16,7 +16,7 @@ function runCli(...args) {
 
 function runProfileVisit(username) {
   console.log(`Trying profile-page network capture fallback for ${username}...`);
-  const profileUrl = `https://www.binance.com/en/square/profile/${encodeURIComponent(username)}`;
+  const profileUrl = `https://www.binance.com/zh-CN/square/profile/${encodeURIComponent(username)}`;
   const raw = execFileSync("node", [
     cli, "visit", profileUrl, "--settle", "12", "--debug",
   ], {
@@ -65,7 +65,7 @@ function runProfileDom(username) {
   const script = String.raw`
     import { chromium } from "/tmp/binance-square-cli/node_modules/playwright/index.mjs";
     const username = process.argv[1];
-    const url = "https://www.binance.com/en/square/profile/" + encodeURIComponent(username);
+    const url = "https://www.binance.com/zh-CN/square/profile/" + encodeURIComponent(username);
     const browser = await chromium.launch({ headless: true, args: ["--no-sandbox", "--disable-dev-shm-usage", "--disable-blink-features=AutomationControlled"] });
     try {
       const page = await browser.newPage({
@@ -104,6 +104,8 @@ function runProfileDom(username) {
   const raw = execFileSync("node", ["--input-type=module", "-e", script, username], {
     encoding: "utf8", timeout: 75000, stdio: ["ignore", "pipe", "inherit"],
   });
+  const diagnosticLines = raw.split("\n").filter(line => line.includes("Profile page diagnostics") || line.includes("Rendered DOM posts found"));
+  for (const line of diagnosticLines) console.log(line);
   const jsonStart = raw.lastIndexOf('{"posts":');
   if (jsonStart < 0) throw new Error("Rendered-page reader returned no post JSON. Output: " + raw.slice(-1200));
   const parsed = JSON.parse(raw.slice(jsonStart).trim());
