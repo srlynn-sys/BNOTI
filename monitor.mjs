@@ -37,7 +37,8 @@ async function runPublicFeed(username) {
     : Array.isArray(data?.list) ? data.list
     : Array.isArray(data?.articles) ? data.articles
     : Array.isArray(data?.contents) ? data.contents
-    : Array.isArray(data?.items) ? data.items : [];
+    : Array.isArray(data?.items) ? data.items
+    : Array.isArray(data?.vos) ? data.vos : [];
   if (!list.length) {
     throw new Error("Public feed returned no recognized posts; response keys: " + JSON.stringify(Object.keys(payload || {})) + "; data keys: " + JSON.stringify(data && typeof data === "object" ? Object.keys(data) : []));
   }
