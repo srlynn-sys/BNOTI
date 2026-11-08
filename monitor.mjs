@@ -60,6 +60,50 @@ function runProfileVisit(username) {
   return { squareUid, posts };
 }
 
+function runProfileDom(username) {
+  console.log(`Trying rendered-page DOM fallback for ${username}...`);
+  const script = String.raw`
+    import { chromium } from "/tmp/binance-square-cli/node_modules/playwright/index.mjs";
+    const username = process.argv[1];
+    const url = "https://www.binance.com/en/square/profile/" + encodeURIComponent(username);
+    const browser = await chromium.launch({ headless: true, args: ["--no-sandbox", "--disable-dev-shm-usage", "--disable-blink-features=AutomationControlled"] });
+    try {
+      const page = await browser.newPage({
+        userAgent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        viewport: { width: 1440, height: 1000 },
+        locale: "en-US"
+      });
+      await page.goto(url, { waitUntil: "domcontentloaded", timeout: 45000 });
+      await page.waitForTimeout(9000);
+      const result = await page.evaluate(() => {
+        const anchors = Array.from(document.querySelectorAll('a[href*="/square/post/"]'));
+        const seen = new Set();
+        return anchors.map(a => {
+          const href = new URL(a.getAttribute("href"), location.origin).href;
+          const match = href.match(/\/square\/post\/(\d+)/);
+          if (!match || seen.has(match[1])) return null;
+          seen.add(match[1]);
+          const card = a.closest("article") || a.parentElement?.parentElement?.parentElement || a;
+          const text = (card.innerText || a.innerText || "").trim().replace(/\s+/g, " ");
+          return { id: match[1], title: text.slice(0, 1000) || "(Post text unavailable)", url: href, time: null };
+        }).filter(Boolean).slice(0, 30);
+      });
+      console.log("Rendered DOM posts found: " + result.length);
+      process.stdout.write(JSON.stringify({ posts: result }));
+    } finally {
+      await browser.close();
+    }
+  `;
+  const raw = execFileSync("node", ["--input-type=module", "-e", script, username], {
+    encoding: "utf8", timeout: 75000, stdio: ["ignore", "pipe", "inherit"],
+  });
+  const parsed = JSON.parse(raw.slice(raw.indexOf("{")));
+  if (!Array.isArray(parsed.posts) || parsed.posts.length === 0) {
+    throw new Error("Rendered Binance profile page exposed no public post links.");
+  }
+  return { squareUid: username, posts: parsed.posts };
+}
+
 function htmlEscape(value = "") {
   return String(value).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 }
@@ -97,7 +141,12 @@ async function readCreator(username) {
     return { squareUid, posts: Array.isArray(result?.posts) ? result.posts.filter(p => p?.id) : [] };
   } catch (primaryError) {
     console.error(`Primary reader failed for ${username}: ${primaryError?.message || primaryError}`);
-    return runProfileVisit(username);
+    try {
+      return runProfileVisit(username);
+    } catch (captureError) {
+      console.error(`Network-capture fallback failed for ${username}: ${captureError?.message || captureError}`);
+      return runProfileDom(username);
+    }
   }
 }
 
