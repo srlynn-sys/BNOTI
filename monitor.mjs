@@ -59,6 +59,14 @@ async function runPublicFeed(username) {
           : Array.isArray(data?.vos) ? data.vos
           : Array.isArray(data?.feeds) ? data.feeds : [];
         console.log(`${feed.name} page ${page}: ${list.length} candidate items`);
+        if (page === 1 && list.length) {
+          const sample = list[0];
+          const authorFields = Object.fromEntries(
+            Object.entries(sample).filter(([key]) => /author|user|creator|profile|nick|name|handle/i.test(key))
+              .map(([key, value]) => [key, value && typeof value === "object" ? JSON.stringify(value).slice(0, 250) : value])
+          );
+          console.log(`Feed schema ${feed.name}: ${JSON.stringify({keys:Object.keys(sample),authorFields})}`);
+        }
         const matches = list.filter(p => {
           const candidates = [
             p?.username, p?.handle, p?.authorUsername, p?.authorHandle,
