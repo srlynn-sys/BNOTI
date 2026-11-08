@@ -9,7 +9,7 @@
     }
   },
   "monitorErrors": {
-    "BTCxiao6": "Rendered Binance profile page exposed no public post links.",
-    "C-H-I-N-A-": "Rendered Binance profile page exposed no public post links."
+    "BTCxiao6": "No exact public-feed author match for BTCxiao6 across latest/news/trending feeds. ",
+    "C-H-I-N-A-": "No exact public-feed author match for C-H-I-N-A- across latest/news/trending feeds. "
   }
 }
