@@ -104,7 +104,9 @@ function runProfileDom(username) {
   const raw = execFileSync("node", ["--input-type=module", "-e", script, username], {
     encoding: "utf8", timeout: 75000, stdio: ["ignore", "pipe", "inherit"],
   });
-  const parsed = JSON.parse(raw.slice(raw.indexOf("{")));
+  const jsonStart = raw.lastIndexOf('{"posts":');
+  if (jsonStart < 0) throw new Error("Rendered-page reader returned no post JSON. Output: " + raw.slice(-1200));
+  const parsed = JSON.parse(raw.slice(jsonStart).trim());
   if (!Array.isArray(parsed.posts) || parsed.posts.length === 0) {
     throw new Error("Rendered Binance profile page exposed no public post links.");
   }
