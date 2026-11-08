@@ -14,6 +14,61 @@ function runCli(...args) {
   return JSON.parse(raw);
 }
 
+
+async function runPublicFeed(username) {
+  console.log(`Trying browserless public Square feed fallback for ${username}...`);
+  const url = "https://www.binance.com/bapi/composite/v3/friendly/pgc/content/article/list?pageIndex=1&pageSize=20&type=2";
+  const response = await fetch(url, {
+    headers: {
+      "accept": "application/json, text/plain, */*",
+      "accept-language": "en-US,en;q=0.9",
+      "referer": "https://www.binance.com/zh-CN/square/trending",
+      "user-agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
+    },
+    signal: AbortSignal.timeout(20000)
+  });
+  const bodyText = await response.text();
+  if (!response.ok) throw new Error(`Public feed HTTP ${response.status}: ${bodyText.slice(0, 180)}`);
+  let payload;
+  try { payload = JSON.parse(bodyText); }
+  catch { throw new Error("Public feed returned non-JSON content (possibly a security check)."); }
+  const data = payload?.data;
+  const list = Array.isArray(data) ? data
+    : Array.isArray(data?.list) ? data.list
+    : Array.isArray(data?.articles) ? data.articles
+    : Array.isArray(data?.contents) ? data.contents
+    : Array.isArray(data?.items) ? data.items : [];
+  if (!list.length) {
+    throw new Error("Public feed returned no recognized posts; response keys: " + JSON.stringify(Object.keys(payload || {})) + "; data keys: " + JSON.stringify(data && typeof data === "object" ? Object.keys(data) : []));
+  }
+  const wanted = username.toLowerCase();
+  const matches = list.filter(p => {
+    const candidates = [
+      p?.username, p?.handle, p?.authorUsername, p?.authorHandle,
+      p?.creatorName, p?.authorName, p?.nickname, p?.userName,
+      p?.author?.username, p?.author?.handle, p?.author?.nickname,
+      p?.user?.username, p?.user?.handle, p?.user?.nickname
+    ].filter(v => typeof v === "string").map(v => v.toLowerCase());
+    return candidates.includes(wanted);
+  }).map(p => ({
+    ...p,
+    id: p?.id == null ? null : String(p.id),
+    title: p?.title || p?.content || p?.bodyTextOnly || p?.body || "(No title)",
+    time: p?.date || p?.createTime || p?.publishTime || null,
+    url: p?.webLink || p?.shareLink || (p?.id ? `https://www.binance.com/en/square/post/${p.id}` : null)
+  })).filter(p => p.id && p.url);
+  console.log(`Public feed returned ${list.length} posts; exact handle matches for ${username}: ${matches.length}`);
+  if (!matches.length) {
+    console.log("Public feed author-field sample: " + JSON.stringify(list.slice(0, 3).map(p => ({
+      id: p?.id, authorName: p?.authorName, username: p?.username,
+      authorUsername: p?.authorUsername, handle: p?.handle,
+      authorKeys: p?.author && typeof p.author === "object" ? Object.keys(p.author) : []
+    }))));
+    throw new Error("Public feed has no exact username match; refusing to send unrelated posts.");
+  }
+  return { squareUid: username, posts: matches };
+}
+
 function runProfileVisit(username) {
   console.log(`Trying profile-page network capture fallback for ${username}...`);
   const profileUrl = `https://www.binance.com/zh-CN/square/profile/${encodeURIComponent(username)}`;
@@ -153,10 +208,15 @@ async function readCreator(username) {
   } catch (primaryError) {
     console.error(`Primary reader failed for ${username}: ${primaryError?.message || primaryError}`);
     try {
-      return runProfileVisit(username);
-    } catch (captureError) {
-      console.error(`Network-capture fallback failed for ${username}: ${captureError?.message || captureError}`);
-      return runProfileDom(username);
+      return await runPublicFeed(username);
+    } catch (feedError) {
+      console.error(`Browserless public-feed fallback failed for ${username}: ${feedError?.message || feedError}`);
+      try {
+        return runProfileVisit(username);
+      } catch (captureError) {
+        console.error(`Network-capture fallback failed for ${username}: ${captureError?.message || captureError}`);
+        return runProfileDom(username);
+      }
     }
   }
 }
