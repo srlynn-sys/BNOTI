@@ -1,1 +1,19 @@
-{"name":"futures-move-alert","version":"1.0.0","private":true,"main":"server.js","scripts":{"start":"node server.js"},"engines":{"node":">=20"},"dependencies":{"dotenv":"^16.4.7","express":"^4.21.2","web-push":"^3.6.7","ws":"^8.18.0"}}
+{
+  "name": "futures-move-alert",
+  "version": "1.0.0",
+  "private": true,
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "web-push": "^3.6.7",
+    "ws": "^8.18.0",
+    "rss-parser": "^3.13.0"
+  }
+}
